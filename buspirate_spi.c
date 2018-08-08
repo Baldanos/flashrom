@@ -26,7 +26,7 @@
 /* Change this to #define if you want to test without a serial implementation */
 #undef FAKE_COMMUNICATION
 
-struct buspirate_speeds {
+struct spispeeds_struct {
 	const char *name;
 	const int speed;
 };
@@ -52,6 +52,7 @@ static int buspirate_serialport_setup(char *dev)
 
 static unsigned char *bp_commbuf = NULL;
 static int bp_commbufsize = 0;
+static int spispeed = 0x7;
 
 static int buspirate_commbuf_grow(int bufsize)
 {
@@ -144,7 +145,7 @@ static struct spi_master spi_master_buspirate = {
 	.write_aai	= default_spi_write_aai,
 };
 
-static const struct buspirate_speeds spispeeds[] = {
+static const struct spispeeds_struct buspirate_spispeeds[] = {
 	{"30k",		0x0},
 	{"125k",	0x1},
 	{"250k",	0x2},
@@ -153,10 +154,22 @@ static const struct buspirate_speeds spispeeds[] = {
 	{"2.6M",	0x5},
 	{"4M",		0x6},
 	{"8M",		0x7},
-	{NULL,		0x0}
+	{NULL,		0x8},
+};
+static const struct spispeeds_struct hydrabus_spispeeds[] = {
+	/* Hydrabus-only speeds */
+	{"160k",	0x0},
+	{"320k",	0x1},
+	{"650k",	0x2},
+	{"1.3M",	0x3},
+	{"2.6M",	0x4},
+	{"5.2M",	0x5},
+	{"10.5M",	0x6},
+	{"21M",		0x7},
+	{NULL,		0x8},
 };
 
-static const struct buspirate_speeds serialspeeds[] = {
+static const struct spispeeds_struct serialspeeds[] = {
 	{"115200",  115200},
 	{"230400",  230400},
 	{"250000",  250000},
@@ -198,9 +211,9 @@ out_shutdown:
 	free(bp_commbuf);
 	bp_commbuf = NULL;
 	if (ret)
-		msg_pdbg("Bus Pirate shutdown failed.\n");
+		msg_pdbg("Shutdown failed.\n");
 	else
-		msg_pdbg("Bus Pirate shutdown completed.\n");
+		msg_pdbg("Shutdown completed.\n");
 
 	return ret;
 }
@@ -214,129 +227,19 @@ out_shutdown:
  */
 #define BP_DIVISOR(baud) ((4000000/(baud)) - 1)
 
-int buspirate_spi_init(void)
+int buspirate_detect_hw(int serialspeed_index)
 {
 	char *tmp;
-	char *dev;
 	int i;
 	int cnt;
-	unsigned int fw_version_major = 0;
-	unsigned int fw_version_minor = 0;
 	unsigned int hw_version_major = 0;
 	unsigned int hw_version_minor = 0;
-	int spispeed = 0x7;
-	int serialspeed_index = -1;
+	unsigned int fw_version_major = 0;
+	unsigned int fw_version_minor = 0;
 	int ret = 0;
-	int pullup = 0;
-
-	dev = extract_programmer_param("dev");
-	if (dev && !strlen(dev)) {
-		free(dev);
-		dev = NULL;
-	}
-	if (!dev) {
-		msg_perr("No serial device given. Use flashrom -p buspirate_spi:dev=/dev/ttyUSB0\n");
-		return 1;
-	}
-
-	tmp = extract_programmer_param("spispeed");
-	if (tmp) {
-		for (i = 0; spispeeds[i].name; i++) {
-			if (!strncasecmp(spispeeds[i].name, tmp, strlen(spispeeds[i].name))) {
-				spispeed = spispeeds[i].speed;
-				break;
-			}
-		}
-		if (!spispeeds[i].name)
-			msg_perr("Invalid SPI speed, using default.\n");
-	}
-	free(tmp);
-
-	/* Extract serialspeed paramater */
-	tmp = extract_programmer_param("serialspeed");
-	if (tmp) {
-		for (i = 0; serialspeeds[i].name; i++) {
-			if (!strncasecmp(serialspeeds[i].name, tmp, strlen(serialspeeds[i].name))) {
-				serialspeed_index = i;
-				break;
-			}
-		}
-		if (!serialspeeds[i].name)
-			msg_perr("Invalid serial speed %s, using default.\n", tmp);
-	}
-	free(tmp);
-
-	tmp = extract_programmer_param("pullups");
-	if (tmp) {
-		if (strcasecmp("on", tmp) == 0)
-			pullup = 1;
-		else if (strcasecmp("off", tmp) == 0)
-			; // ignore
-		else
-			msg_perr("Invalid pullups state, not using them.\n");
-	}
-	free(tmp);
 
 	/* Default buffer size is 19: 16 bytes data, 3 bytes control. */
 #define DEFAULT_BUFSIZE (16 + 3)
-	bp_commbuf = malloc(DEFAULT_BUFSIZE);
-	if (!bp_commbuf) {
-		bp_commbufsize = 0;
-		msg_perr("Out of memory!\n");
-		free(dev);
-		return ERROR_OOM;
-	}
-	bp_commbufsize = DEFAULT_BUFSIZE;
-
-	ret = buspirate_serialport_setup(dev);
-	free(dev);
-	if (ret) {
-		bp_commbufsize = 0;
-		free(bp_commbuf);
-		bp_commbuf = NULL;
-		return ret;
-	}
-
-	if (register_shutdown(buspirate_spi_shutdown, NULL) != 0) {
-		bp_commbufsize = 0;
-		free(bp_commbuf);
-		bp_commbuf = NULL;
-		return 1;
-	}
-
-	/* This is the brute force version, but it should work.
-	 * It is likely to fail if a previous flashrom run was aborted during a write with the new SPI commands
-	 * in firmware v5.5 because that firmware may wait for up to 4096 bytes of input before responding to
-	 * 0x00 again. The obvious workaround (sending 4096 bytes of \0) may cause significant startup delays.
-	 */
-	for (i = 0; i < 20; i++) {
-		/* Enter raw bitbang mode */
-		bp_commbuf[0] = 0x00;
-		/* Send the command, don't read the response. */
-		ret = buspirate_sendrecv(bp_commbuf, 1, 0);
-		if (ret)
-			return ret;
-		/* The old way to handle responses from a Bus Pirate already in BBIO mode was to flush any
-		 * response which came in over serial. Unfortunately that does not work reliably on Linux
-		 * with FTDI USB-serial.
-		 */
-		//sp_flush_incoming();
-		/* The Bus Pirate can't handle UART input buffer overflow in BBIO mode, and sending a sequence
-		 * of 0x00 too fast apparently triggers such an UART input buffer overflow.
-		 */
-		internal_sleep(10000);
-	}
-	/* We know that 20 commands of \0 should elicit at least one BBIO1 response. */
-	if ((ret = buspirate_wait_for_string(bp_commbuf, "BBIO")))
-		return ret;
-
-	/* Reset the Bus Pirate. */
-	bp_commbuf[0] = 0x0f;
-	/* Send the command, don't read the response. */
-	if ((ret = buspirate_sendrecv(bp_commbuf, 1, 0)))
-		return ret;
-	if ((ret = buspirate_wait_for_string(bp_commbuf, "irate ")))
-		return ret;
 	/* Read the hardware version string. Last byte of the buffer is reserved for \0. */
 	for (i = 0; i < DEFAULT_BUFSIZE - 1; i++) {
 		if ((ret = buspirate_sendrecv(bp_commbuf + i, 0, 1)))
@@ -345,7 +248,7 @@ int buspirate_spi_init(void)
 			break;
 	}
 	bp_commbuf[i] = '\0';
-	msg_pdbg("Detected Bus Pirate hardware ");
+	msg_pdbg("Detected Bus Pirate hardware %s\n", bp_commbuf);
 	if (bp_commbuf[0] != 'v')
 		msg_pdbg("(unknown version number format)");
 	else if (!strchr("0123456789", bp_commbuf[1]))
@@ -425,9 +328,6 @@ int buspirate_spi_init(void)
 			spispeed = 0x4;
 		}
 
-	/* This works because speeds numbering starts at 0 and is contiguous. */
-	msg_pdbg("SPI speed is %sHz\n", spispeeds[spispeed].name);
-
 	/* Set 2M baud serial speed by default on hardware 3.0 and newer if a custom speed was not set */
 	if (serialspeed_index == -1 && BP_HWVERSION(hw_version_major, hw_version_minor) >= BP_HWVERSION(3, 0)) {
 		serialspeed_index = ARRAY_SIZE(serialspeeds) - 2;
@@ -486,8 +386,125 @@ int buspirate_spi_init(void)
 		}
 
 	}
+	return ret;
+}
 
+int buspirate_spi_init(void)
+{
+	char *tmp;
+	char *dev;
+	int i;
+	int ret = 0;
+	int pullup = 0;
+	struct spispeeds_struct const *spispeeds;
+	int serialspeed_index = -1;
 
+	dev = extract_programmer_param("dev");
+	if (dev && !strlen(dev)) {
+		free(dev);
+		dev = NULL;
+	}
+	if (!dev) {
+		msg_perr("No serial device given. Use flashrom -p buspirate_spi:dev=/dev/ttyUSB0\n");
+		return 1;
+	}
+
+	tmp = extract_programmer_param("pullups");
+	if (tmp) {
+		if (strcasecmp("on", tmp) == 0)
+			pullup = 1;
+		else if (strcasecmp("off", tmp) == 0)
+			; // ignore
+		else
+			msg_perr("Invalid pullups state, not using them.\n");
+	}
+	free(tmp);
+
+	bp_commbuf = malloc(DEFAULT_BUFSIZE);
+	if (!bp_commbuf) {
+		bp_commbufsize = 0;
+		msg_perr("Out of memory!\n");
+		free(dev);
+		return ERROR_OOM;
+	}
+	bp_commbufsize = DEFAULT_BUFSIZE;
+
+	ret = buspirate_serialport_setup(dev);
+	free(dev);
+	if (ret) {
+		bp_commbufsize = 0;
+		free(bp_commbuf);
+		bp_commbuf = NULL;
+		return ret;
+	}
+
+	if (register_shutdown(buspirate_spi_shutdown, NULL) != 0) {
+		bp_commbufsize = 0;
+		free(bp_commbuf);
+		bp_commbuf = NULL;
+		return 1;
+	}
+
+	/* This is the brute force version, but it should work.
+	 * It is likely to fail if a previous flashrom run was aborted during a write with the new SPI commands
+	 * in firmware v5.5 because that firmware may wait for up to 4096 bytes of input before responding to
+	 * 0x00 again. The obvious workaround (sending 4096 bytes of \0) may cause significant startup delays.
+	 */
+	for (i = 0; i < 20; i++) {
+		/* Enter raw bitbang mode */
+		bp_commbuf[0] = 0x00;
+		/* Send the command, don't read the response. */
+		ret = buspirate_sendrecv(bp_commbuf, 1, 0);
+		if (ret)
+			return ret;
+		/* The old way to handle responses from a Bus Pirate already in BBIO mode was to flush any
+		 * response which came in over serial. Unfortunately that does not work reliably on Linux
+		 * with FTDI USB-serial.
+		 */
+		//sp_flush_incoming();
+		/* The Bus Pirate can't handle UART input buffer overflow in BBIO mode, and sending a sequence
+		 * of 0x00 too fast apparently triggers such an UART input buffer overflow.
+		 */
+		internal_sleep(10000);
+	}
+	/* We know that 20 commands of \0 should elicit at least one BBIO1 response. */
+	if ((ret = buspirate_wait_for_string(bp_commbuf, "BBIO")))
+		return ret;
+
+	/* Reset the Bus Pirate. */
+	bp_commbuf[0] = 0x0f;
+	/* Send the command, don't read the response. */
+	if ((ret = buspirate_sendrecv(bp_commbuf, 1, 6)))
+		return ret;
+	/* Detect the device type and set the settings accordingly */
+	if (!strncasecmp((char *)bp_commbuf+1, "Hydra", 5)) {
+		msg_pdbg("Detected Hydrabus hardware\n");
+		spi_master_buspirate.max_data_read = 4096;
+		spi_master_buspirate.max_data_write = 4096;
+		spi_master_buspirate.command = buspirate_spi_send_command_v2;
+		spispeeds = hydrabus_spispeeds;
+	} else if (!(ret = buspirate_wait_for_string(bp_commbuf, "irate "))){
+		buspirate_detect_hw(serialspeed_index);
+		spispeeds = buspirate_spispeeds;
+	} else {
+		return ret;
+	}
+
+	tmp = extract_programmer_param("spispeed");
+	if (tmp) {
+		for (i = 0; spispeeds[i].name; i++) {
+			if (!strncasecmp(spispeeds[i].name, tmp, strlen(spispeeds[i].name))) {
+				spispeed = spispeeds[i].speed;
+				break;
+			}
+		}
+		if (!spispeeds[i].name)
+			msg_perr("Invalid SPI speed, using default.\n");
+	}
+	free(tmp);
+
+	/* This works because speeds numbering starts at 0 and is contiguous. */
+	msg_pdbg("SPI speed is %sHz\n", spispeeds[spispeed].name);
 
 	/* Enter raw bitbang mode */
 	for (i = 0; i < 20; i++) {
@@ -543,10 +560,6 @@ int buspirate_spi_init(void)
 
 	/* Set SPI config: output type, idle, clock edge, sample */
 	bp_commbuf[0] = 0x80 | 0xa;
-	if (pullup == 1) {
-		bp_commbuf[0] &= ~(1 << 3);
-		msg_pdbg("Pull-ups enabled, so using HiZ pin output! (Open-Drain mode)\n");
-	}
 	ret = buspirate_sendrecv(bp_commbuf, 1, 1);
 	if (ret)
 		return 1;
@@ -598,7 +611,7 @@ static int buspirate_spi_send_command_v1(struct flashctx *flash, unsigned int wr
 	ret = buspirate_sendrecv(bp_commbuf, i, i);
 
 	if (ret) {
-		msg_perr("Bus Pirate communication error!\n");
+		msg_perr("Communication error!\n");
 		return SPI_GENERIC_ERROR;
 	}
 
@@ -628,7 +641,9 @@ static int buspirate_spi_send_command_v2(struct flashctx *flash, unsigned int wr
 {
 	int i = 0, ret = 0;
 
-	if (writecnt > 4096 || readcnt > 4096 || (readcnt + writecnt) > 4096)
+	if (writecnt > spi_master_buspirate.max_data_write ||
+	    readcnt > spi_master_buspirate.max_data_read ||
+	    (readcnt + writecnt) > spi_master_buspirate.max_data_write+spi_master_buspirate.max_data_read)
 		return SPI_INVALID_LENGTH;
 
 	/* 5 bytes extra for command, writelen, readlen.
@@ -648,7 +663,7 @@ static int buspirate_spi_send_command_v2(struct flashctx *flash, unsigned int wr
 	ret = buspirate_sendrecv(bp_commbuf, i + writecnt, 1 + readcnt);
 
 	if (ret) {
-		msg_perr("Bus Pirate communication error!\n");
+		msg_perr("Communication error!\n");
 		return SPI_GENERIC_ERROR;
 	}
 
