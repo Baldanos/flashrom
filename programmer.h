@@ -73,6 +73,9 @@ enum programmer {
 #if CONFIG_DEDIPROG == 1
 	PROGRAMMER_DEDIPROG,
 #endif
+#if CONFIG_DEVELOPERBOX_SPI == 1
+	PROGRAMMER_DEVELOPERBOX_SPI,
+#endif
 #if CONFIG_RAYER_SPI == 1
 	PROGRAMMER_RAYER_SPI,
 #endif
@@ -172,6 +175,9 @@ enum bitbang_spi_master_type {
 #if CONFIG_OGP_SPI == 1
 	BITBANG_SPI_MASTER_OGP,
 #endif
+#if CONFIG_DEVELOPERBOX_SPI == 1
+	BITBANG_SPI_MASTER_DEVELOPERBOX,
+#endif
 };
 
 struct bitbang_spi_master {
@@ -184,6 +190,9 @@ struct bitbang_spi_master {
 	int (*get_miso) (void);
 	void (*request_bus) (void);
 	void (*release_bus) (void);
+	/* optional functions to optimize xfers */
+	void (*set_sck_set_mosi) (int sck, int mosi);
+	int (*set_sck_get_miso) (int sck);
 	/* Length of half a clock period in usecs. */
 	unsigned int half_period;
 };
@@ -545,6 +554,12 @@ int dediprog_init(void);
 extern const struct dev_entry devs_dediprog[];
 #endif
 
+/* developerbox_spi.c */
+#if CONFIG_DEVELOPERBOX_SPI == 1
+int developerbox_spi_init(void);
+extern const struct dev_entry devs_developerbox_spi[];
+#endif
+
 /* ch341a_spi.c */
 #if CONFIG_CH341A_SPI == 1
 int ch341a_spi_init(void);
@@ -825,5 +840,13 @@ static inline bool spi_master_4ba(const struct flashctx *const flash)
 	return flash->mst->buses_supported & BUS_SPI &&
 		flash->mst->spi.features & SPI_MASTER_4BA;
 }
+
+/* usbdev.c */
+struct libusb_device_handle;
+struct libusb_context;
+struct libusb_device_handle *usb_dev_get_by_vid_pid_serial(
+		struct libusb_context *usb_ctx, uint16_t vid, uint16_t pid, const char *serialno);
+struct libusb_device_handle *usb_dev_get_by_vid_pid_number(
+		struct libusb_context *usb_ctx, uint16_t vid, uint16_t pid, unsigned int num);
 
 #endif				/* !__PROGRAMMER_H__ */

@@ -151,7 +151,7 @@ static int enable_flash_sis501(struct pci_dev *dev, const char *name)
 	tmp &= (~0x20);
 	tmp |= 0x4;
 	sio_write(0x22, 0x70, tmp);
-	
+
 	return ret;
 }
 
@@ -1724,7 +1724,7 @@ const struct penable chipset_enables[] = {
 	{0x8086, 0x1c44, DEP, "Intel", "Z68",				enable_flash_pch6},
 	{0x8086, 0x1c46, DEP, "Intel", "P67",				enable_flash_pch6},
 	{0x8086, 0x1c47, NT,  "Intel", "UM67",				enable_flash_pch6},
-	{0x8086, 0x1c49, NT,  "Intel", "HM65",				enable_flash_pch6},
+	{0x8086, 0x1c49, DEP, "Intel", "HM65",				enable_flash_pch6},
 	{0x8086, 0x1c4a, DEP, "Intel", "H67",				enable_flash_pch6},
 	{0x8086, 0x1c4b, NT,  "Intel", "HM67",				enable_flash_pch6},
 	{0x8086, 0x1c4c, NT,  "Intel", "Q65",				enable_flash_pch6},
@@ -1801,11 +1801,11 @@ const struct penable chipset_enables[] = {
 	{0x8086, 0x3b00, NT,  "Intel", "3400 Desktop",			enable_flash_pch5},
 	{0x8086, 0x3b01, NT,  "Intel", "3400 Mobile",			enable_flash_pch5},
 	{0x8086, 0x3b02, NT,  "Intel", "P55",				enable_flash_pch5},
-	{0x8086, 0x3b03, NT,  "Intel", "PM55",				enable_flash_pch5},
+	{0x8086, 0x3b03, DEP, "Intel", "PM55",				enable_flash_pch5},
 	{0x8086, 0x3b06, DEP, "Intel", "H55",				enable_flash_pch5},
 	{0x8086, 0x3b07, DEP, "Intel", "QM57",				enable_flash_pch5},
 	{0x8086, 0x3b08, NT,  "Intel", "H57",				enable_flash_pch5},
-	{0x8086, 0x3b09, NT,  "Intel", "HM55",				enable_flash_pch5},
+	{0x8086, 0x3b09, DEP, "Intel", "HM55",				enable_flash_pch5},
 	{0x8086, 0x3b0a, NT,  "Intel", "Q57",				enable_flash_pch5},
 	{0x8086, 0x3b0b, NT,  "Intel", "HM57",				enable_flash_pch5},
 	{0x8086, 0x3b0d, NT,  "Intel", "3400 Mobile SFF",		enable_flash_pch5},
@@ -1841,7 +1841,7 @@ const struct penable chipset_enables[] = {
 	{0x8086, 0x8c51, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
 	{0x8086, 0x8c52, NT,  "Intel", "C222",				enable_flash_pch8},
 	{0x8086, 0x8c53, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
-	{0x8086, 0x8c54, NT,  "Intel", "C224",				enable_flash_pch8},
+	{0x8086, 0x8c54, DEP, "Intel", "C224",				enable_flash_pch8},
 	{0x8086, 0x8c55, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
 	{0x8086, 0x8c56, NT,  "Intel", "C226",				enable_flash_pch8},
 	{0x8086, 0x8c57, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
@@ -1849,7 +1849,7 @@ const struct penable chipset_enables[] = {
 	{0x8086, 0x8c59, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
 	{0x8086, 0x8c5a, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
 	{0x8086, 0x8c5b, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
-	{0x8086, 0x8c5c, NT,  "Intel", "H81",				enable_flash_pch8},
+	{0x8086, 0x8c5c, DEP, "Intel", "H81",				enable_flash_pch8},
 	{0x8086, 0x8c5d, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
 	{0x8086, 0x8c5e, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
 	{0x8086, 0x8c5f, NT,  "Intel", "Lynx Point",			enable_flash_pch8},
@@ -1896,7 +1896,7 @@ const struct penable chipset_enables[] = {
 	{0x8086, 0x9c47, NT,  "Intel", "Lynx Point LP Value",		enable_flash_pch8_lp},
 	{0x8086, 0x9cc1, NT,  "Intel", "Haswell U Sample",		enable_flash_pch9_lp},
 	{0x8086, 0x9cc2, NT,  "Intel", "Broadwell U Sample",		enable_flash_pch9_lp},
-	{0x8086, 0x9cc3, NT,  "Intel", "Broadwell U Premium",		enable_flash_pch9_lp},
+	{0x8086, 0x9cc3, DEP, "Intel", "Broadwell U Premium",		enable_flash_pch9_lp},
 	{0x8086, 0x9cc5, NT,  "Intel", "Broadwell U Base",		enable_flash_pch9_lp},
 	{0x8086, 0x9cc6, NT,  "Intel", "Broadwell Y Sample",		enable_flash_pch9_lp},
 	{0x8086, 0x9cc7, NT,  "Intel", "Broadwell Y Premium",		enable_flash_pch9_lp},

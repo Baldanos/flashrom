@@ -51,6 +51,7 @@ static int dediprog_out_endpoint;
 enum dediprog_devtype {
 	DEV_UNKNOWN		= 0,
 	DEV_SF100		= 100,
+	DEV_SF200		= 200,
 	DEV_SF600		= 600,
 };
 
@@ -152,7 +153,7 @@ enum protocol {
 };
 
 const struct dev_entry devs_dediprog[] = {
-	{0x0483, 0xDADA, OK, "Dediprog", "SF100/SF600"},
+	{0x0483, 0xDADA, OK, "Dediprog", "SF100/SF200/SF600"},
 
 	{0},
 };
@@ -181,6 +182,7 @@ static enum protocol protocol(void)
 	/* Firmware version < 5.0.0 is handled explicitly in some cases. */
 	switch (dediprog_devicetype) {
 	case DEV_SF100:
+	case DEV_SF200:
 		if (dediprog_firmwareversion < FIRMWARE_VERSION(5, 5, 0))
 			return PROTOCOL_V1;
 		else
@@ -241,50 +243,6 @@ static int dediprog_write(enum dediprog_cmds cmd, unsigned int value, unsigned i
 				      (unsigned char *)bytes, size, DEFAULT_TIMEOUT);
 }
 
-
-/* Might be useful for other USB devices as well. static for now.
- * num parameter allows user to specify one device of multiple installed */
-static struct libusb_device_handle *get_device_by_vid_pid_number(uint16_t vid, uint16_t pid, unsigned int num)
-{
-	struct libusb_device **list;
-	ssize_t count = libusb_get_device_list(usb_ctx, &list);
-	if (count < 0) {
-		msg_perr("Getting the USB device list failed (%s)!\n", libusb_error_name(count));
-		return NULL;
-	}
-
-	struct libusb_device_handle *handle = NULL;
-	ssize_t i = 0;
-	for (i = 0; i < count; i++) {
-		struct libusb_device *dev = list[i];
-		struct libusb_device_descriptor desc;
-		int err = libusb_get_device_descriptor(dev, &desc);
-		if (err != 0) {
-			msg_perr("Reading the USB device descriptor failed (%s)!\n", libusb_error_name(err));
-			libusb_free_device_list(list, 1);
-			return NULL;
-		}
-		if ((desc.idVendor == vid) && (desc.idProduct == pid)) {
-			msg_pdbg("Found USB device %04"PRIx16":%04"PRIx16" at address %d-%d.\n",
-				 desc.idVendor, desc.idProduct,
-				 libusb_get_bus_number(dev), libusb_get_device_address(dev));
-			if (num == 0) {
-				err = libusb_open(dev, &handle);
-				if (err != 0) {
-					msg_perr("Opening the USB device failed (%s)!\n",
-						 libusb_error_name(err));
-					libusb_free_device_list(list, 1);
-					return NULL;
-				}
-				break;
-			}
-			num--;
-		}
-	}
-	libusb_free_device_list(list, 1);
-
-	return handle;
-}
 
 /* This function sets the GPIOs connected to the LEDs as well as IO1-IO4. */
 static int dediprog_set_leds(int leds)
@@ -454,14 +412,14 @@ static int dediprog_spi_bulk_read(struct flashctx *flash, uint8_t *buf, unsigned
 	struct libusb_transfer *transfers[DEDIPROG_ASYNC_TRANSFERS] = { NULL, };
 	struct libusb_transfer *transfer;
 
+	if (len == 0)
+		return 0;
+
 	if ((start % chunksize) || (len % chunksize)) {
 		msg_perr("%s: Unaligned start=%i, len=%i! Please report a bug at flashrom@flashrom.org\n",
 			 __func__, start, len);
 		return 1;
 	}
-
-	if (len == 0)
-		return 0;
 
 	int command_packet_size;
 	switch (protocol()) {
@@ -546,7 +504,7 @@ static int dediprog_spi_read(struct flashctx *flash, uint8_t *buf, unsigned int 
 	int ret;
 	/* chunksize must be 512, other sizes will NOT work at all. */
 	const unsigned int chunksize = 0x200;
-	unsigned int residue = start % chunksize ? chunksize - start % chunksize : 0;
+	unsigned int residue = start % chunksize ? min(len, chunksize - start % chunksize) : 0;
 	unsigned int bulklen;
 
 	dediprog_set_leds(LED_BUSY);
@@ -800,10 +758,12 @@ static int dediprog_check_devicestring(void)
 	msg_pdbg("Found a %s\n", buf);
 	if (memcmp(buf, "SF100", 0x5) == 0)
 		dediprog_devicetype = DEV_SF100;
+	else if (memcmp(buf, "SF200", 0x5) == 0)
+		dediprog_devicetype = DEV_SF200;
 	else if (memcmp(buf, "SF600", 0x5) == 0)
 		dediprog_devicetype = DEV_SF600;
 	else {
-		msg_perr("Device not a SF100 or SF600!\n");
+		msg_perr("Device not a SF100, SF200, or SF600!\n");
 		return 1;
 	}
 
@@ -1102,7 +1062,7 @@ int dediprog_init(void)
 
 	const uint16_t vid = devs_dediprog[0].vendor_id;
 	const uint16_t pid = devs_dediprog[0].device_id;
-	dediprog_handle = get_device_by_vid_pid_number(vid, pid, (unsigned int) usedevice);
+	dediprog_handle = usb_dev_get_by_vid_pid_number(usb_ctx, vid, pid, (unsigned int) usedevice);
 	if (!dediprog_handle) {
 		msg_perr("Could not find a Dediprog programmer on USB.\n");
 		libusb_exit(usb_ctx);
@@ -1135,12 +1095,17 @@ int dediprog_init(void)
 			return 1;
 	}
 
-	/* SF100 only has 1 endpoint for in/out, SF600 uses two separate endpoints instead. */
+	/* SF100/SF200 uses one in/out endpoint, SF600 uses separate in/out endpoints */
 	dediprog_in_endpoint = 2;
-	if (dediprog_devicetype == DEV_SF100)
+	switch (dediprog_devicetype) {
+	case DEV_SF100:
+	case DEV_SF200:
 		dediprog_out_endpoint = 2;
-	else
+		break;
+	default:
 		dediprog_out_endpoint = 1;
+		break;
+	}
 
 	/* Set all possible LEDs as soon as possible to indicate activity.
 	 * Because knowing the firmware version is required to set the LEDs correctly we need to this after

@@ -255,6 +255,18 @@ const struct programmer_entry programmer_table[] = {
 	},
 #endif
 
+#if CONFIG_DEVELOPERBOX_SPI == 1
+	{
+		.name			= "developerbox",
+		.type			= USB,
+		.devs.dev		= devs_developerbox_spi,
+		.init			= developerbox_spi_init,
+		.map_flash_region	= fallback_map,
+		.unmap_flash_region	= fallback_unmap,
+		.delay			= internal_delay,
+	},
+#endif
+
 #if CONFIG_RAYER_SPI == 1
 	{
 		.name			= "rayer_spi",
@@ -642,7 +654,6 @@ char *extract_param(const char *const *haystack, const char *needle, const char 
 			return NULL;
 		/* Needle followed by '='? */
 		if (param_pos[needlelen] == '=') {
-			
 			/* Beginning of the string? */
 			if (param_pos == *haystack)
 				break;
@@ -2248,7 +2259,7 @@ int prepare_flash_access(struct flashctx *const flash,
 	flash->in_4ba_mode = false;
 
 	/* Enable/disable 4-byte addressing mode if flash chip supports it */
-	if (flash->chip->feature_bits & (FEATURE_4BA_ENTER | FEATURE_4BA_ENTER_WREN)) {
+	if (flash->chip->feature_bits & (FEATURE_4BA_ENTER | FEATURE_4BA_ENTER_WREN | FEATURE_4BA_ENTER_EAR7)) {
 		int ret;
 		if (spi_master_4ba(flash))
 			ret = spi_enter_4ba(flash);
